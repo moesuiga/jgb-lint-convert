@@ -1,0 +1,36 @@
+{
+  "name": "jgb-lint-convert",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run test && npm run build",
+    "test": "jest"
+  },
+  "bin": {
+    "jconvert": "bin/jconvert.js"
+  },
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "devDependencies": {
+    "@babel/core": "^7.10.4",
+    "@babel/generator": "^7.10.4",
+    "@babel/helpers": "^7.10.4",
+    "@babel/parser": "^7.10.4",
+    "@babel/traverse": "^7.10.4",
+    "@types/fs-extra": "^9.0.1",
+    "@types/jest": "^26.0.4",
+    "@types/lodash": "^4.14.157",
+    "jest": "^26.1.0",
+    "ts-jest": "^26.1.2",
+    "typescript": "^3.9.6"
+  },
+  "dependencies": {
+    "fast-glob": "^3.2.4",
+    "fs-extra": "^9.0.1",
+    "yargs": "^15.4.1"
+  }
+}
