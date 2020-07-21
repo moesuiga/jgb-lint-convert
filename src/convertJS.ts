@@ -17,14 +17,47 @@ const TaConfig: IConvertConfig = {
 };
 
 export async function convertJS(code: string) {
+  let changed = false;
   const ast = parse(code, {
     sourceType: 'module',
-    plugins: ['typescript'],
+    plugins: ['typescript', 'decorators-legacy', 'classPrivateMethods', 'classPrivateProperties', 'classProperties', 'asyncGenerators', 'exportDefaultFrom', 'doExpressions', 'dynamicImport', 'exportNamespaceFrom', 'functionBind'],
   });
+
+  // collect names similar "import { name } from 'module'"
+  const importedNames = new Map<string, string[]>();
+  // collect default names similar "import name from 'module'"
+  const importedDefaults = new Map<string, string[]>();
+  // collect namespaces similar "import * as name from 'module'"
+  const importedNamespaces = new Map<string, string[]>();
+
   const matchedConfig = [] as IConvertConfigValue[];
   let convertConfig = await readConfigAsync();
-  let changed = false;
+
   traverse(ast, {
+    ImportDeclaration(node) {
+      const sourceFile = node.node.source.value;
+      const { specifiers } = node.node;
+      specifiers.forEach((s) => {
+        // similar `import obj from 'module';`
+        if (t.isImportDefaultSpecifier(s)) {
+          const names = [] as string[];
+          if (importedDefaults.has(sourceFile)) {
+            names.push(...importedDefaults.get(sourceFile));
+          }
+          names.push(s.local.name);
+          importedDefaults.set(sourceFile, names);
+        }
+        // similar `import { obj } from 'module'`
+        else if (t.isImportSpecifier(s)) {
+          const names = [] as string[];
+          if (importedNames.has(sourceFile)) {
+            names.push(...importedNames.get(sourceFile));
+          }
+          names.push(s.local.name);
+          importedNames.set(sourceFile, names);
+        }
+      });
+    },
     MemberExpression(node) {
       if (t.isAssignmentExpression(node.parent)) return;
 
@@ -50,22 +83,47 @@ export async function convertJS(code: string) {
       }
     },
   });
+  // 过滤掉已在文件中引入的变量
+  const needAddConfig = matchedConfig.filter((c) => {
+    console.log([...importedNames.entries()])
+    if (c.isDefault && importedDefaults.has(c.import)) {
+      const originalImported = importedDefaults.get(c.import);
+      const [key] = c.replacedKey.split('.');
+      return !originalImported?.includes(key);
+    }
+    if (importedNames.has(c.import)) {
+      const originalImported = importedNames.get(c.import);
+      const [key] = c.replacedKey.split('.');
+      return !originalImported?.includes(key);
+    }
+    return true;
+  });
+  // console.log('\n============\n')
+  // console.log('matched ', matchedConfig);
+  // console.log('\n============\n')
+  // console.log('need add => ', needAddConfig)
   if (matchedConfig.length) {
     changed = true;
-    const map = new Map<string, string[]>();
-    matchedConfig.forEach((c) => {
-      const importSpecifiers = [] as string[];
+    const map = new Map<string, {
+      value: string;
+      isDefault: boolean;
+    }[]>();
+    needAddConfig.forEach((c) => {
+      const importSpecifiers = [] as {value: string; isDefault: boolean}[];
       if (map.has(c.import)) {
         importSpecifiers.push(...map.get(c.import));
       }
-      importSpecifiers.push(c.replacedKey);
+      importSpecifiers.push({ value: c.replacedKey, isDefault: !!c.isDefault});
       map.set(c.import, [...new Set(importSpecifiers)]);
     });
 
     for (const [importFile, importDeclarations] of map) {
       const importAst = t.importDeclaration(
-        importDeclarations.map((d: string) => {
-          const [s] = d.split('.');
+        importDeclarations.map((d) => {
+          const [s] = d.value.split('.');
+          if (d.isDefault) {
+            return t.importDefaultSpecifier(t.identifier(s));
+          }
           return t.importSpecifier(t.identifier(s), t.identifier(s));
         }),
         t.stringLiteral(importFile)
@@ -93,25 +151,16 @@ function convertTA(node: NodePath<t.MemberExpression>) {
         }
 
         const callNodePath = node.parentPath;
-        if (
-          t.isMemberExpression(callNodePath.parentPath) &&
-          t.isCallExpression(callNodePath.parentPath?.parentPath)
-        ) {
-          const trackId = (callNodePath.parentPath.node as t.MemberExpression)
-            .property;
+        if (t.isMemberExpression(callNodePath.parentPath) && t.isCallExpression(callNodePath.parentPath?.parentPath)) {
+          const trackId = (callNodePath.parentPath.node as t.MemberExpression).property;
           if (t.isIdentifier(trackId) && trackId.name === 'track') {
-            callNodePath.parentPath.parentPath.replaceWith(
-              t.callExpression(t.identifier('taSensors'), args)
-            );
+            callNodePath.parentPath.parentPath.replaceWith(t.callExpression(t.identifier('taSensors'), args));
             return 'taSensors';
           }
         }
 
         node.replaceWith(t.identifier('tuhuTA.track'));
-        callNode.callee = t.memberExpression(
-          t.identifier('tuhuTA'),
-          t.identifier('track')
-        );
+        callNode.callee = t.memberExpression(t.identifier('tuhuTA'), t.identifier('track'));
         callNode.arguments = args;
         return 'tuhuTA.track';
       }
@@ -147,10 +196,7 @@ function getTargetMemberExpression(
       return { key: value, node };
     }
   } else if (t.isMemberExpression(object.node)) {
-    const result = getTargetMemberExpression(
-      object as NodePath<t.MemberExpression>,
-      value
-    );
+    const result = getTargetMemberExpression(object as NodePath<t.MemberExpression>, value);
     const property = node.get('property');
     if (result && t.isIdentifier(property.node)) {
       result.key.push(property.node.name);
