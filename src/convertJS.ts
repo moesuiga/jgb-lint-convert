@@ -100,23 +100,28 @@ export async function convertJS(code: string) {
   });
   // 过滤掉已在文件中引入的变量
   const needAddConfig = matchedConfig.filter((c) => {
-    console.log([...importedNames.entries()])
     if (c.isDefault && importedDefaults.has(c.import)) {
       const originalImported = importedDefaults.get(c.import);
-      const [key] = c.replacedKey.split('.');
+      let [key] = c.replacedKey.split('.');
+      // e.g. wx.isFull => isFull, wx.systemInfo.isIOS => isIOS()
+      [key] = key.split('(');
       return !originalImported?.includes(key);
     }
     if (importedNames.has(c.import)) {
       const originalImported = importedNames.get(c.import);
-      const [key] = c.replacedKey.split('.');
+      let [key] = c.replacedKey.split('.');
+      // e.g. wx.isFull => isFull, wx.systemInfo.isIOS => isIOS()
+      [key] = key.split('(');
       return !originalImported?.includes(key);
     }
     return true;
   });
-  // console.log('\n============\n')
-  // console.log('matched ', matchedConfig);
-  // console.log('\n============\n')
-  // console.log('need add => ', needAddConfig)
+  console.log('\n============\n')
+  console.log('current imported => ', [...importedNames.entries()], [...importedDefaults.entries()])
+  console.log('\n============\n')
+  console.log('matched ', matchedConfig);
+  console.log('\n============\n')
+  console.log('need add => ', needAddConfig)
   if (matchedConfig.length) {
     changed = true;
     const map = new Map<string, {
@@ -129,13 +134,15 @@ export async function convertJS(code: string) {
         importSpecifiers.push(...map.get(c.import));
       }
       importSpecifiers.push({ value: c.replacedKey, isDefault: !!c.isDefault});
-      map.set(c.import, [...new Set(importSpecifiers)]);
+      map.set(c.import, importSpecifiers);
     });
 
     for (const [importFile, importDeclarations] of map) {
       const importAst = t.importDeclaration(
         importDeclarations.map((d) => {
-          const [s] = d.value.split('.');
+          let [s] = d.value.split('.');
+          // e.g. wx.isFull => isFull, wx.systemInfo.isIOS => isIOS()
+          [s] = s.split('(');
           if (d.isDefault) {
             return t.importDefaultSpecifier(t.identifier(s));
           }
