@@ -18,6 +18,21 @@ const TaConfig: IConvertConfig = {
 
 export async function convertJS(code: string) {
   let changed = false;
+  // remove some code like "type MyPage = BasePage"
+  const replacedTypes = [
+    'JPage',
+    'BasePage',
+    'IMyPage',
+    'AuthInterestsOptions',
+    'AuthVehicleInfoOptions',
+    'UploadImageOptions',
+    'AuthQAOptions'
+  ];
+  code = code.replace(new RegExp(`^type\\s+[^=]+\\s*=\\s*(${replacedTypes.join('|')});?$`, 'gm'), function (match) {
+    console.log('\n=======\n', match, '\n=======\n',)
+    changed = true;
+    return '';
+  });
   const ast = parse(code, {
     sourceType: 'module',
     plugins: ['typescript', 'decorators-legacy', 'classPrivateMethods', 'classPrivateProperties', 'classProperties', 'asyncGenerators', 'exportDefaultFrom', 'doExpressions', 'dynamicImport', 'exportNamespaceFrom', 'functionBind'],
