@@ -4,6 +4,8 @@ import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
 import { readConfigAsync, IConvertConfigValue, IConvertConfig } from './config';
 import _ from 'lodash';
+import prettier from 'prettier/standalone';
+import prettierTypescript from 'prettier/parser-typescript';
 
 const TaConfig: IConvertConfig = {
   'wx.Ta': {
@@ -16,7 +18,7 @@ const TaConfig: IConvertConfig = {
   },
 };
 
-export async function convertJS(code: string) {
+export async function convertJS(code: string, file: string) {
   let changed = false;
   // remove some code like "type MyPage = BasePage"
   const replacedTypes = [
@@ -29,7 +31,7 @@ export async function convertJS(code: string) {
     'AuthQAOptions'
   ];
   code = code.replace(new RegExp(`^type\\s+[^=]+\\s*=\\s*(${replacedTypes.join('|')});?$`, 'gm'), function (match) {
-    console.log('\n=======\n', match, '\n=======\n',)
+    console.log(`\x1b[1;32m${file} => remove type declare \x1b[31m\`${match}\`\x1b[0m`)
     changed = true;
     return '';
   });
@@ -116,12 +118,26 @@ export async function convertJS(code: string) {
     }
     return true;
   });
-  console.log('\n============\n')
-  console.log('current imported => ', [...importedNames.entries()], [...importedDefaults.entries()])
-  console.log('\n============\n')
-  console.log('matched ', matchedConfig);
-  console.log('\n============\n')
-  console.log('need add => ', needAddConfig)
+  if (matchedConfig.length) {
+    console.log('\n============\n')
+    console.log(`\x1b[1;36m${file}\x1b[0m matched => `, matchedConfig);
+    console.log('\n============\n')
+    console.log(`\x1b[1;36m${file}\x1b[0m need add => `, needAddConfig)
+  }
+  let hasSameName = false;
+  const sameNames: string[] = [];
+  const imported = ([] as string[]).concat(...importedDefaults.values()).concat(...importedNames.values());
+  needAddConfig.forEach((conf) => {
+    let [key] = conf.replacedKey.split('.');
+    [key] = key.split('(');
+    if (imported.includes(key)) {
+      sameNames.push(key);
+      hasSameName = true;
+    }
+  });
+  if (hasSameName) {
+    console.error(`\x1b[31m文件 ${file} 中替换的引入变量与原有引入变量有相同的名称，请手动解决冲突 => \x1b[0m`, sameNames);
+  }
   if (matchedConfig.length) {
     changed = true;
     const map = new Map<string, {
@@ -155,7 +171,18 @@ export async function convertJS(code: string) {
     }
   }
 
-  return { result: generate(ast, {}, code), changed };
+  // keep lines
+  const result = generate(ast, { retainLines: true }, code);
+  // use prettier format code
+  const formatCode = prettier.format(result.code, {
+    parser: 'typescript',
+    plugins: [prettierTypescript],
+    tabWidth: 2,
+    singleQuote: true,
+    printWidth: 80,
+    trailingComma: 'none'
+  });
+  return { code: formatCode, map: result.map, changed };
 }
 
 function convertTA(node: NodePath<t.MemberExpression>) {

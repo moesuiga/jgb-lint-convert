@@ -13,10 +13,11 @@ export async function convert(glob: string) {
   for await (const file of files) {
     if (['.js', '.ts'].includes(path.extname(file))) {
       try {
-        const { result, changed } = await convertJS(
-          await fse.readFile(file, 'utf-8')
+        const { code, map, changed } = await convertJS(
+          await fse.readFile(file, 'utf-8'),
+          file
         );
-        if (changed) fse.writeFile(file, result.code);
+        if (changed) fse.writeFile(file, code);
       } catch (error) {
         console.log('---转换失败---');
         console.log(`${file} \n`, error);
